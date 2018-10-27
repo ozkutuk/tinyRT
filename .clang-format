@@ -1,0 +1,16 @@
+﻿---
+BasedOnStyle: LLVM
+AccessModifierOffset: '-4'
+AlignTrailingComments: 'true'
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: 'false'
+AllowShortLoopsOnASingleLine: 'false'
+AlwaysBreakTemplateDeclarations: 'true'
+IndentWidth: '4'
+NamespaceIndentation: None
+SortIncludes: 'true'
+Standard: Auto
+TabWidth: '4'
+UseTab: Never
+
+...
