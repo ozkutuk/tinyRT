@@ -42,53 +42,32 @@ intersect(const Ray &ray, const parser::Face &triangle,
     tinymath::vec3f vertexB = vertex_data[triangle.v1_id - 1];
     tinymath::vec3f vertexC = vertex_data[triangle.v2_id - 1];
 
-    // compute the plane's normal
-    tinymath::vec3f normal =
-        tinymath::cross(vertexB - vertexA, vertexC - vertexA);
+    tinymath::vec3f edgeBC = vertexC - vertexB;
+    tinymath::vec3f edgeBA = vertexA - vertexB;
+
     tinymath::vec3f direction = tinymath::normalize(ray.direction);
+    tinymath::vec3f pvec = tinymath::cross(direction, edgeBA);
+    float determinant = tinymath::dot(edgeBC, pvec);
 
-
-    // test if ray and plane are parallel
+    // no face-culling
     const float almostZero = 1e-6;
-
-    float denom = tinymath::dot(normal, direction);
-    // TODO add check for being in the [t_min, t_max] range
-    if (std::abs(denom) < almostZero)
-        return std::nullopt;
-    
-    // Back-face culling
-    if (denom > 0)
+    if (std::abs(determinant) < almostZero)
         return std::nullopt;
 
-    float intersectLength = tinymath::dot(normal, vertexA - ray.origin) / denom;
+    float inverseDeterminant = 1 / determinant;
 
-    // is the plane behind the ray?
-    if (intersectLength < 0)
+    tinymath::vec3f tvec = ray.origin - vertexB;
+    float u = tinymath::dot(tvec, pvec) * inverseDeterminant;
+    if (u < 0 || u > 1)
         return std::nullopt;
 
-    tinymath::vec3f planeIntersection =
-        ray.origin + intersectLength * direction;
-
-
-    auto CB = vertexB - vertexC;
-    auto CP = planeIntersection - vertexC;
-    auto CPxCB = tinymath::cross(CP, CB);
-    if (tinymath::dot(normal, CPxCB) < 0)
+    tinymath::vec3f qvec = tinymath::cross(tvec, edgeBC);
+    float v = tinymath::dot(direction, qvec) * inverseDeterminant;
+    if (v < 0 || u + v > 1)
         return std::nullopt;
 
-    auto AC = vertexC - vertexA;
-    auto AP = planeIntersection - vertexA;
-    auto APxAC = tinymath::cross(AP, AC);
-    if (tinymath::dot(normal, APxAC) < 0)
-        return std::nullopt;
-
-    auto BA = vertexA - vertexB;
-    auto BP = planeIntersection - vertexB;
-    auto BPxBA = tinymath::cross(BP, BA);
-    if (tinymath::dot(normal, BPxBA) < 0)
-        return std::nullopt;
-
-    return intersectLength;
+    float t = tinymath::dot(edgeBA, qvec) * inverseDeterminant;
+    return t;
 }
 
 int main(int argc, char *argv[]) {
@@ -139,11 +118,7 @@ int main(int argc, char *argv[]) {
                     std::optional<float> intersected =
                         intersect(rayToPixel, sphere, scene.vertex_data);
                     if (intersected) {
-                        // FIXME t_current should come from intersect function,
-                        // currently it is the length to pixel
                         float t_current = intersected.value();
-                        // float t_current =
-                        // tinymath::length(rayToPixel.direction);
                         if (t_current < t) {
                             t = t_current;
                             minSphere = &sphere;
@@ -156,8 +131,6 @@ int main(int argc, char *argv[]) {
                     std::optional<float> intersected = intersect(
                         rayToPixel, triangle.indices, scene.vertex_data);
                     if (intersected) {
-                        // float t_current =
-                        // tinymath::length(rayToPixel.direction);
                         float t_current = intersected.value();
                         if (t_current < t) {
                             t = t_current;
@@ -172,8 +145,6 @@ int main(int argc, char *argv[]) {
                         std::optional<float> intersected =
                             intersect(rayToPixel, face, scene.vertex_data);
                         if (intersected) {
-                            // float t_current =
-                            // tinymath::length(rayToPixel.direction);
                             float t_current = intersected.value();
                             if (t_current < t) {
                                 t = t_current;
