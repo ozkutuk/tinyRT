@@ -368,7 +368,7 @@ tinymath::vec3f calculatePhong(const Ray & ray, const traceData & intersection, 
         auto shadowIntersect = trace(shadowRay, scene);
 
         // calculate diffuse and specular only if point is not in the shadow
-        if (shadowIntersect.t >= intersection.t) {
+        if (shadowIntersect.t >= tinymath::length(lightDirection)) {
 
             tinymath::vec3f diffuse = calculateDiffuse(material, lightDirection,
                     intersection.normal, light.intensity);
@@ -460,7 +460,7 @@ void createImage(const parser::Camera & camera, const parser::Scene & scene) {
 int main(int argc, char *argv[]) {
     parser::Scene scene;
 
-    scene.loadFromXml("../hw1_sample_scenes/bunny.xml");
+    scene.loadFromXml("../hw1_sample_scenes/cornellbox.xml");
 
     for (auto & mesh : scene.meshes)
         mesh.boundingBox = calculateBoundingBox(mesh, scene.vertex_data);
