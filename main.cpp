@@ -101,7 +101,7 @@ intersect(const Ray &ray, const parser::Face &triangle,
 int main(int argc, char *argv[]) {
     parser::Scene scene;
 
-    scene.loadFromXml("../hw1_sample_scenes/mirror_spheres.xml");
+    scene.loadFromXml("../hw1_sample_scenes/simple_shading.xml");
 
     for (const auto &camera : scene.cameras) {
 
@@ -234,7 +234,9 @@ int main(int argc, char *argv[]) {
                         totalDiffuse += diffuse;
 
                         tinymath::vec3f specular;
-                        tinymath::vec3f halfVector = tinymath::normalize(lightDirection + toEye);
+                        tinymath::vec3f halfVector = tinymath::normalize(
+                                                     tinymath::normalize(lightDirection) +
+                                                     tinymath::normalize(toEye));
                         float cosAlpha = std::max(0.0f, tinymath::dot(currentNormal, halfVector));
                         float cosAlphaWithPhongAndR = std::pow(cosAlpha, material.phong_exponent) / (lightDistance * lightDistance);
 
