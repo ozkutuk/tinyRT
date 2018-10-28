@@ -61,10 +61,16 @@ namespace parser
         int v2_id;
     };
 
+    struct Box {
+        tinymath::vec3f minExtent;
+        tinymath::vec3f maxExtent;
+    };
+
     struct Mesh
     {
         int material_id;
         std::vector<Face> faces;
+        Box boundingBox;
     };
 
     struct Triangle

@@ -30,11 +30,117 @@ struct intersectData {
     tinymath::vec3f normal;
 };
 
+parser::Box calculateBoundingBox(const parser::Mesh & mesh, const std::vector<tinymath::vec3f> & vertex_data) {
+    parser::Box boundingBox;
+
+    for (const auto &face : mesh.faces) {
+        tinymath::vec3f vertexA = vertex_data[face.v0_id - 1];
+        tinymath::vec3f vertexB = vertex_data[face.v1_id - 1];
+        tinymath::vec3f vertexC = vertex_data[face.v2_id - 1];
+
+        if (vertexA.x > boundingBox.maxExtent.x)
+            boundingBox.maxExtent.x = vertexA.x;
+
+        if (vertexA.y > boundingBox.maxExtent.y)
+            boundingBox.maxExtent.y = vertexA.y;
+
+        if (vertexA.z > boundingBox.maxExtent.z)
+            boundingBox.maxExtent.z = vertexA.z;
+
+        if (vertexA.x < boundingBox.minExtent.x)
+            boundingBox.minExtent.x = vertexA.x;
+
+        if (vertexA.y < boundingBox.minExtent.y)
+            boundingBox.minExtent.y = vertexA.y;
+
+        if (vertexA.z < boundingBox.minExtent.z)
+            boundingBox.minExtent.z = vertexA.z;
+
+        if (vertexB.x > boundingBox.maxExtent.x)
+            boundingBox.maxExtent.x = vertexB.x;
+
+        if (vertexB.y > boundingBox.maxExtent.y)
+            boundingBox.maxExtent.y = vertexB.y;
+
+        if (vertexB.z > boundingBox.maxExtent.z)
+            boundingBox.maxExtent.z = vertexB.z;
+
+        if (vertexB.x < boundingBox.minExtent.x)
+            boundingBox.minExtent.x = vertexB.x;
+
+        if (vertexB.y < boundingBox.minExtent.y)
+            boundingBox.minExtent.y = vertexB.y;
+
+        if (vertexB.z < boundingBox.minExtent.z)
+            boundingBox.minExtent.z = vertexB.z;
+
+        if (vertexC.x > boundingBox.maxExtent.x)
+            boundingBox.maxExtent.x = vertexC.x;
+
+        if (vertexC.y > boundingBox.maxExtent.y)
+            boundingBox.maxExtent.y = vertexC.y;
+
+        if (vertexC.z > boundingBox.maxExtent.z)
+            boundingBox.maxExtent.z = vertexC.z;
+
+        if (vertexC.x < boundingBox.minExtent.x)
+            boundingBox.minExtent.x = vertexC.x;
+
+        if (vertexC.y < boundingBox.minExtent.y)
+            boundingBox.minExtent.y = vertexC.y;
+
+        if (vertexC.z < boundingBox.minExtent.z)
+            boundingBox.minExtent.z = vertexC.z;
+
+    }
+
+    return boundingBox;
+}
+
 tinymath::vec3f clamp(tinymath::vec3f v) {
     v.x = std::min(std::max(0.0f, v.x), 255.0f);
     v.y = std::min(std::max(0.0f, v.y), 255.0f);
     v.z = std::min(std::max(0.0f, v.z), 255.0f);
     return v;
+}
+
+bool intersect(const Ray &ray, const parser::Box& box) {
+
+    float tmin = (box.minExtent.x - ray.origin.x) / ray.direction.x;
+    float tmax = (box.maxExtent.x - ray.origin.x) / ray.direction.x;
+
+    if (tmin > tmax)
+        std::swap(tmin, tmax);
+
+    float tymin = (box.minExtent.y - ray.origin.y) / ray.direction.y;
+    float tymax = (box.maxExtent.y - ray.origin.y) / ray.direction.y;
+
+    if (tymin > tymax) std::swap(tymin, tymax);
+
+    if ((tmin > tymax) || (tymin > tmax))
+        return false;
+
+    if (tymin > tmin)
+        tmin = tymin;
+
+    if (tymax < tmax)
+        tmax = tymax;
+
+    float tzmin = (box.minExtent.z - ray.origin.z) / ray.direction.z;
+    float tzmax = (box.maxExtent.z - ray.origin.z) / ray.direction.z;
+
+    if (tzmin > tzmax) std::swap(tzmin, tzmax);
+
+    if ((tmin > tzmax) || (tzmin > tmax))
+        return false;
+
+    if (tzmin > tmin)
+        tmin = tzmin;
+
+    if (tzmax < tmax)
+        tmax = tzmax;
+
+    return true; 
 }
 
 std::optional<intersectData>
@@ -156,6 +262,10 @@ traceData trace(const Ray & ray, const parser::Scene & scene) {
     }
 
     for (const auto &mesh : scene.meshes) {
+        
+        if(intersect(ray, mesh.boundingBox) == false)
+            continue;
+
         for (const auto &face : mesh.faces) {
             std::optional<intersectData> intersected =
                 intersect(ray, face, scene.vertex_data);
@@ -350,7 +460,10 @@ void createImage(const parser::Camera & camera, const parser::Scene & scene) {
 int main(int argc, char *argv[]) {
     parser::Scene scene;
 
-    scene.loadFromXml("../hw1_sample_scenes/mirror_spheres.xml");
+    scene.loadFromXml("../hw1_sample_scenes/bunny.xml");
+
+    for (auto & mesh : scene.meshes)
+        mesh.boundingBox = calculateBoundingBox(mesh, scene.vertex_data);
 
     for (const auto &camera : scene.cameras)
         createImage(camera, scene);
