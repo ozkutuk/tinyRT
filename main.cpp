@@ -79,7 +79,7 @@ intersect(const Ray &ray, const parser::Face &triangle,
 int main(int argc, char *argv[]) {
     parser::Scene scene;
 
-    scene.loadFromXml("../hw1_sample_scenes/simple_shading.xml");
+    scene.loadFromXml("../hw1_sample_scenes/mirror_spheres.xml");
 
     for (const auto &camera : scene.cameras) {
 
@@ -119,6 +119,7 @@ int main(int argc, char *argv[]) {
                 ObjectType minObject;
                 const parser::Face *minFace;
                 const parser::Sphere *minSphere;
+                int currentMaterial = 0;
 
                 for (const auto &sphere : scene.spheres) {
                     std::optional<float> intersected =
@@ -129,6 +130,7 @@ int main(int argc, char *argv[]) {
                             t = t_current;
                             minSphere = &sphere;
                             minObject = ObjectType::SPHERE;
+                            currentMaterial = sphere.material_id;
                         }
                     }
                 }
@@ -142,6 +144,7 @@ int main(int argc, char *argv[]) {
                             t = t_current;
                             minFace = &triangle.indices;
                             minObject = ObjectType::TRIANGLE;
+                            currentMaterial = triangle.material_id;
                         }
                     }
                 }
@@ -156,6 +159,7 @@ int main(int argc, char *argv[]) {
                                 t = t_current;
                                 minFace = &face;
                                 minObject = ObjectType::TRIANGLE;
+                                currentMaterial = mesh.material_id;
                             }
                         }
                     }
@@ -163,18 +167,18 @@ int main(int argc, char *argv[]) {
 
                 PPMColor color;
                 if (t != infinity) { // ray hit an object
+                    parser::Material material = scene.materials[currentMaterial - 1];
+                    color = {static_cast<int>(material.diffuse.x * 255),
+                             static_cast<int>(material.diffuse.y * 255),
+                             static_cast<int>(material.diffuse.z * 255)};
+#if 0
                     if (minObject == ObjectType::SPHERE) {
-                        // color = minSphere -> color;
                         color = {255, 255, 255};
-                        // color = { (int)(t * 100), (int)t, (int)t };
                     }
                     if (minObject == ObjectType::TRIANGLE) {
-                        // color = minTriangle -> color;
                         color = {255, 255, 255};
-                        // color = { (int)(t * 100), (int)t, (int)t };
                     }
-                    // if triangle ...
-                    //
+#endif
                 } else {
                     color = {0, 0, 0};
                 }
