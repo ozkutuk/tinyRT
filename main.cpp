@@ -3,6 +3,8 @@
 #include <limits>
 #include <algorithm>
 #include <optional>
+#include <thread>
+#include <mutex>
 
 #include "parser.h"
 #include "ppmimage.h"
@@ -426,6 +428,50 @@ void putPixel(int x, int y, PPMImage & image, const imageConfig & config,
     image.setPixel(x, y, color);
 }
 
+class Task {
+public:
+    int row;
+    int width;
+    imageConfig *config;
+    PPMImage *image;
+    parser::Camera const *camera;
+    parser::Scene const *scene;
+    Task(int row, int width, PPMImage *image, imageConfig *config, parser::Camera const *camera, parser::Scene const *scene)
+        : row(row), width(width), image(image), config(config), camera(camera), scene(scene) { }
+    void execute() {
+        for (int i = 0; i < width; i++) {
+            putPixel(i, row, *image, *config, *camera, *scene);
+        }
+    }
+};
+
+class TaskManager {
+public:
+    std::mutex mutex;
+    int imageHeight;
+    int imageWidth;
+    imageConfig *config;
+    PPMImage *image;
+    parser::Camera const *camera;
+    parser::Scene const *scene;
+    int currentRow = 0;
+    std::unique_ptr<Task> getTask() {
+        std::lock_guard<std::mutex> lock(mutex);
+        std::unique_ptr<Task> task;
+        if (currentRow < imageHeight) {
+            task = std::make_unique<Task>(currentRow, imageWidth, image, config, camera, scene);
+            currentRow++;
+        }
+        return task;
+    }
+};
+
+void workerThread(TaskManager *manager) {
+    while (auto task = manager->getTask()) {
+        task->execute();
+    }
+}
+
 void createImage(const parser::Camera & camera, const parser::Scene & scene) {
 
     int width = camera.image_width;
@@ -447,11 +493,28 @@ void createImage(const parser::Camera & camera, const parser::Scene & scene) {
     config.topLeft = camera.position + camera.gaze * camera.near_distance 
                      + camera.up * config.top + right * config.left;
 
-    for (int j = 0; j < height; j++) {
-        for (int i = 0; i < width; i++) {
-            putPixel(i, j, image, config, camera, scene);
-        }
-    }
+    const int threadCount = 8;
+    std::thread threads[threadCount];
+    TaskManager manager;
+    manager.imageHeight = height;
+    manager.imageWidth = width;
+    manager.config = &config;
+    manager.image = &image;
+    manager.camera = &camera;
+    manager.scene = &scene;
+
+    for (int i = 0; i < threadCount - 1; i++)
+        threads[i] = std::thread(workerThread, &manager);
+
+    for (int i = 0; i < threadCount - 1; i++)
+        threads[i].join();
+
+
+    //for (int j = 0; j < height; j++) {
+    //    for (int i = 0; i < width; i++) {
+    //        putPixel(i, j, image, config, camera, scene);
+    //    }
+    //}
 
     std::cout << "writing to file..." << std::endl;
     image.writeFile(camera.image_name);
@@ -483,7 +546,7 @@ void calculateAllNormals(parser::Scene & scene) {
 int main(int argc, char *argv[]) {
     parser::Scene scene;
 
-    scene.loadFromXml("../hw1_sample_scenes/bunny.xml");
+    scene.loadFromXml("../hw1_sample_scenes/mirror_spheres.xml");
 
     std::cout << "calculating bounding boxes of the meshes..." << std::endl;
     for (auto & mesh : scene.meshes)
