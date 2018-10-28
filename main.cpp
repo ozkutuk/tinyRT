@@ -67,13 +67,19 @@ intersect(const Ray &ray, const parser::Face &triangle,
         return std::nullopt;
 
     float t = tinymath::dot(edgeBA, qvec) * inverseDeterminant;
+
+    // May move this check up inorder to speed things up
+    // not sure if it would speed up or slow down though
+    if (t < 0)
+        return std::nullopt;
+
     return t;
 }
 
 int main(int argc, char *argv[]) {
     parser::Scene scene;
 
-    scene.loadFromXml("../hw1_sample_scenes/bunny.xml");
+    scene.loadFromXml("../hw1_sample_scenes/simple_shading.xml");
 
     for (const auto &camera : scene.cameras) {
 
