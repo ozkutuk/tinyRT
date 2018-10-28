@@ -157,7 +157,7 @@ intersect(const Ray &ray, const parser::Sphere &sphere,
     float determinant = fst * fst - snd * thrd;
 
     const float almostZero = 1e-6;
-    if (std::abs(determinant) < almostZero)
+    if (determinant < almostZero)
         return std::nullopt;
     //if (determinant < 0) {
     //    return std::nullopt;
@@ -167,7 +167,7 @@ intersect(const Ray &ray, const parser::Sphere &sphere,
                std::sqrt(determinant)) /
               snd;
 
-    if (t < 0)
+    if (t < almostZero)
         return std::nullopt;
     
     intersectData result;
@@ -212,7 +212,7 @@ intersect(const Ray &ray, const parser::Face &triangle,
 
     // May move this check up inorder to speed things up
     // not sure if it would speed up or slow down though
-    if (t < 0)
+    if (t < almostZero)
         return std::nullopt;
 
     // TODO there must be a precomputed normal somewhere here...
@@ -460,7 +460,7 @@ void createImage(const parser::Camera & camera, const parser::Scene & scene) {
 int main(int argc, char *argv[]) {
     parser::Scene scene;
 
-    scene.loadFromXml("../hw1_sample_scenes/cornellbox.xml");
+    scene.loadFromXml("../hw1_sample_scenes/bunny.xml");
 
     for (auto & mesh : scene.meshes)
         mesh.boundingBox = calculateBoundingBox(mesh, scene.vertex_data);
