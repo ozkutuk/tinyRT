@@ -214,10 +214,9 @@ intersect(const Ray &ray, const parser::Face &triangle,
     if (t < almostZero)
         return std::nullopt;
 
-    // TODO there must be a precomputed normal somewhere here...
     intersectData result;
     result.t = t;
-    result.normal = tinymath::normalize(tinymath::cross(edgeBC, edgeBA));
+    result.normal = triangle.normal; 
     return result;
 }
 
@@ -454,19 +453,48 @@ void createImage(const parser::Camera & camera, const parser::Scene & scene) {
         }
     }
 
-    std::cout << "writing..." << std::endl;
+    std::cout << "writing to file..." << std::endl;
     image.writeFile(camera.image_name);
 }
+
+void calculateNormal(parser::Face & face, const std::vector<tinymath::vec3f> & vertex_data) {
+
+    tinymath::vec3f vertexA = vertex_data[face.v0_id - 1];
+    tinymath::vec3f vertexB = vertex_data[face.v1_id - 1];
+    tinymath::vec3f vertexC = vertex_data[face.v2_id - 1];
+
+    tinymath::vec3f edgeBC = vertexC - vertexB;
+    tinymath::vec3f edgeBA = vertexA - vertexB;
+
+    face.normal = tinymath::normalize(tinymath::cross(edgeBC, edgeBA));
+}
+
+void calculateAllNormals(parser::Scene & scene) {
+
+    for (auto & mesh : scene.meshes)
+        for (auto & face : mesh.faces)
+            calculateNormal(face, scene.vertex_data);
+
+    for (auto & triangle : scene.triangles)
+        calculateNormal(triangle.indices, scene.vertex_data);
+}
+
 
 int main(int argc, char *argv[]) {
     parser::Scene scene;
 
-    scene.loadFromXml("../hw1_sample_scenes/cornellbox.xml");
+    scene.loadFromXml("../hw1_sample_scenes/bunny.xml");
 
+    std::cout << "calculating bounding boxes of the meshes..." << std::endl;
     for (auto & mesh : scene.meshes)
         mesh.boundingBox = calculateBoundingBox(mesh, scene.vertex_data);
+    
+    std::cout << "pre-computing normals of faces..." << std::endl;
+    calculateAllNormals(scene);
 
-    for (const auto &camera : scene.cameras)
+    for (const auto &camera : scene.cameras) {
+        std::cout << "raytracing..." << std::endl;
         createImage(camera, scene);
+    }
         
 }

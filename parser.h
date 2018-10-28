@@ -59,6 +59,7 @@ namespace parser
         int v0_id;
         int v1_id;
         int v2_id;
+        tinymath::vec3f normal;
     };
 
     struct Box {
