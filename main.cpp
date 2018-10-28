@@ -8,6 +8,18 @@
 #include "ppmimage.h"
 #include "tinymath.h"
 
+const float infinity = std::numeric_limits<float>::max();
+
+struct imageConfig {
+    float left;
+    float right;
+    float bottom;
+    float top;
+    float widthPerPixel;
+    float heightPerPixel;
+    tinymath::vec3f topLeft;
+};
+
 struct Ray {
     tinymath::vec3f origin;
     tinymath::vec3f direction;
@@ -104,240 +116,243 @@ intersect(const Ray &ray, const parser::Face &triangle,
     return result;
 }
 
+struct traceData {
+    tinymath::vec3f normal;
+    int material;
+    float t;
+};
+
+traceData trace(const Ray & ray, const parser::Scene & scene) {
+    float t = infinity;
+    int currentMaterial = 0;
+    tinymath::vec3f currentNormal;
+
+    for (const auto &sphere : scene.spheres) {
+        std::optional<intersectData> intersected =
+            intersect(ray, sphere, scene.vertex_data);
+        if (intersected) {
+            intersectData intersection = intersected.value();
+            float t_current = intersection.t;
+            if (t_current < t) {
+                t = t_current;
+                currentNormal = intersection.normal;
+                currentMaterial = sphere.material_id;
+            }
+        }
+    }
+
+    for (const auto &triangle : scene.triangles) {
+        std::optional<intersectData> intersected = intersect(
+                ray, triangle.indices, scene.vertex_data);
+        if (intersected) {
+            intersectData intersection = intersected.value();
+            float t_current = intersection.t;
+            if (t_current < t) {
+                t = t_current;
+                currentNormal = intersection.normal;
+                currentMaterial = triangle.material_id;
+            }
+        }
+    }
+
+    for (const auto &mesh : scene.meshes) {
+        for (const auto &face : mesh.faces) {
+            std::optional<intersectData> intersected =
+                intersect(ray, face, scene.vertex_data);
+            if (intersected) {
+                intersectData intersection = intersected.value();
+                float t_current = intersection.t;
+                if (t_current < t) {
+                    t = t_current;
+                    currentNormal = intersection.normal;
+                    currentMaterial = mesh.material_id;
+                }
+            }
+        }
+    }
+
+    traceData result;
+    result.t = t;
+    result.material = currentMaterial;
+    result.normal = currentNormal;
+    return result;
+}
+
+tinymath::vec3f calculateAmbient(const parser::Material & material, const tinymath::vec3f & ambient) {
+
+    tinymath::vec3f calculated;
+    calculated.x = ambient.x * material.ambient.x;
+    calculated.y= ambient.y * material.ambient.y;
+    calculated.z = ambient.z * material.ambient.z;
+    return calculated;    
+}
+
+tinymath::vec3f calculateDiffuse(const parser::Material & material,
+                                 const tinymath::vec3f & lightDirection,
+                                 const tinymath::vec3f & intersectionNormal,
+                                 const tinymath::vec3f & lightIntensity) {
+
+    float cosTheta = std::max(0.0f, tinymath::dot(tinymath::normalize(lightDirection), intersectionNormal));
+    float lightDistance = tinymath::length(lightDirection);
+    float cosThetaOverDistanceSquared = cosTheta / (lightDistance * lightDistance);
+
+    tinymath::vec3f calculated;
+    calculated.x = (lightIntensity.x * material.diffuse.x) * cosThetaOverDistanceSquared;
+    calculated.y = (lightIntensity.y * material.diffuse.y) * cosThetaOverDistanceSquared;
+    calculated.z = (lightIntensity.z * material.diffuse.z) * cosThetaOverDistanceSquared;
+
+    return calculated;
+}
+
+tinymath::vec3f calculateSpecular(const parser::Material & material,
+                                 const tinymath::vec3f & lightDirection,
+                                 const tinymath::vec3f & intersectionNormal,
+                                 const tinymath::vec3f & lightIntensity,
+                                 const tinymath::vec3f & toEye) {
+
+    tinymath::vec3f halfVector = tinymath::normalize(tinymath::normalize(lightDirection)
+                                                     + tinymath::normalize(toEye));
+    float cosAlpha = std::max(0.0f, tinymath::dot(intersectionNormal, halfVector));
+    float lightDistance = tinymath::length(lightDirection);
+    float cosAlphaWithPhongAndR = std::pow(cosAlpha, material.phong_exponent) / (lightDistance * lightDistance);
+
+    tinymath::vec3f calculated;
+    calculated.x = (lightIntensity.x * material.specular.x) * cosAlphaWithPhongAndR;  
+    calculated.y = (lightIntensity.y * material.specular.y) * cosAlphaWithPhongAndR;  
+    calculated.z = (lightIntensity.z * material.specular.z) * cosAlphaWithPhongAndR;  
+
+    return calculated;
+}
+
+Ray castShadowRay(const tinymath::vec3f & direction, const tinymath::vec3f & origin, float epsilon) {
+    Ray shadowRay;
+    shadowRay.direction = direction;
+    tinymath::vec3f offset =  epsilon * tinymath::normalize(direction);
+    shadowRay.origin = origin + offset;
+    shadowRay.direction -= offset;
+    return shadowRay;
+}
+
+tinymath::vec3f calculatePhong(const Ray & ray, const traceData & intersection, const parser::Scene & scene) {
+
+    parser::Material material = scene.materials[intersection.material - 1];
+    tinymath::vec3f intersectionPoint = ray.origin +
+        tinymath::normalize(ray.direction) * intersection.t;
+    tinymath::vec3f toEye = ray.origin - intersectionPoint;
+
+    tinymath::vec3f phong;
+    tinymath::vec3f totalDiffuse;
+    tinymath::vec3f totalSpecular;
+
+    // apply ambient to everywhere
+    tinymath::vec3f ambient = calculateAmbient(material, scene.ambient_light);
+    phong = ambient;
+
+    for (const auto & light : scene.point_lights) {
+
+        tinymath::vec3f lightDirection =
+            light.position - intersectionPoint;
+
+        Ray shadowRay =
+            castShadowRay(lightDirection, intersectionPoint, scene.shadow_ray_epsilon);
+        auto shadowIntersect = trace(shadowRay, scene);
+
+        // calculate diffuse and specular only if point is not in the shadow
+        if (shadowIntersect.t >= intersection.t) {
+
+            tinymath::vec3f diffuse = calculateDiffuse(material, lightDirection,
+                    intersection.normal, light.intensity);
+            totalDiffuse += diffuse;
+
+            tinymath::vec3f specular = calculateSpecular(material, lightDirection,
+                    intersection.normal, light.intensity,
+                    toEye);
+            totalSpecular += specular;
+
+        }
+    }
+
+    phong += totalSpecular;
+    phong += totalDiffuse;
+    phong = clamp(phong);
+
+    return phong;
+}
+
+PPMColor calculateColor(const Ray & ray, const traceData & intersection, const parser::Scene & scene) {
+    PPMColor color;
+    if (intersection.t != infinity) { // ray hit an object
+
+        tinymath::vec3f phong = calculatePhong(ray, intersection, scene);
+
+        color = { static_cast<int>(phong.x),
+                  static_cast<int>(phong.y),
+                  static_cast<int>(phong.z) };
+
+    } else {
+        color = { scene.background_color.x,
+                  scene.background_color.y,
+                  scene.background_color.z };
+    }
+    
+    return color;
+}
+
+void putPixel(int x, int y, PPMImage & image, const imageConfig & config,
+              const parser::Camera & camera, const parser::Scene & scene) {
+
+    float uOffset = config.widthPerPixel * (x + 0.5f);
+    float vOffset = config.heightPerPixel * (y + 0.5f);
+    tinymath::vec3f right = tinymath::cross(camera.up, -1 * camera.gaze);
+
+    Ray rayToPixel;
+    rayToPixel.origin = camera.position;
+    rayToPixel.direction =
+        (config.topLeft + uOffset * right - vOffset * camera.up) -
+        rayToPixel.origin;
+
+    auto intersection = trace(rayToPixel, scene);
+    auto color = calculateColor(rayToPixel, intersection, scene);
+    image.setPixel(x, y, color);
+}
+
+void createImage(const parser::Camera & camera, const parser::Scene & scene) {
+
+    int width = camera.image_width;
+    int height = camera.image_height;
+
+    PPMImage image(width, height);
+
+    imageConfig config;
+
+    config.left   = camera.near_plane.x;
+    config.right  = camera.near_plane.y;
+    config.bottom = camera.near_plane.z;
+    config.top    = camera.near_plane.w;
+    config.widthPerPixel = (config.right - config.left) / width;
+    config.heightPerPixel = (config.top - config.bottom) / height;
+
+    tinymath::vec3f right = tinymath::cross(camera.up, -1 * camera.gaze);
+
+    config.topLeft = camera.position + camera.gaze * camera.near_distance 
+                     + camera.up * config.top + right * config.left;
+
+    for (int j = 0; j < height; j++) {
+        for (int i = 0; i < width; i++) {
+            putPixel(i, j, image, config, camera, scene);
+        }
+    }
+
+    std::cout << "writing..." << std::endl;
+    image.writeFile(camera.image_name);
+}
+
 int main(int argc, char *argv[]) {
     parser::Scene scene;
 
-    scene.loadFromXml("../hw1_sample_scenes/simple_shading.xml");
+    scene.loadFromXml("../hw1_sample_scenes/mirror_spheres.xml");
 
-    for (const auto &camera : scene.cameras) {
-
-        int width = camera.image_width;
-        int height = camera.image_height;
-
-        PPMImage image(width, height);
-
-        float imageLeft = camera.near_plane.x;
-        float imageRight = camera.near_plane.y;
-        float imageBottom = camera.near_plane.z;
-        float imageTop = camera.near_plane.w;
-
-        tinymath::vec3f right = tinymath::cross(camera.up, -1 * camera.gaze);
-
-        tinymath::vec3f topLeftVector =
-            camera.position + camera.gaze * camera.near_distance +
-            camera.up * imageTop + right * imageLeft;
-
-        float widthPerPixel = (imageRight - imageLeft) / width;
-        float heightPerPixel = (imageTop - imageBottom) / height;
-
-        for (int j = 0; j < height; j++) {
-            for (int i = 0; i < width; i++) {
-                Ray rayToPixel;
-                rayToPixel.origin = camera.position;
-
-                float uOffset = widthPerPixel * (i + 0.5f);
-                float vOffset = heightPerPixel * (j + 0.5f);
-                rayToPixel.direction =
-                    (topLeftVector + uOffset * right - vOffset * camera.up) -
-                    rayToPixel.origin;
-
-                enum class ObjectType { TRIANGLE, SPHERE };
-                const float infinity = std::numeric_limits<float>::max();
-                float t = infinity;
-                ObjectType minObject;
-                const parser::Face *minFace;
-                const parser::Sphere *minSphere;
-                int currentMaterial = 0;
-                tinymath::vec3f currentNormal;
-
-                for (const auto &sphere : scene.spheres) {
-                    std::optional<intersectData> intersected =
-                        intersect(rayToPixel, sphere, scene.vertex_data);
-                    if (intersected) {
-                        intersectData intersection = intersected.value();
-                        float t_current = intersection.t;
-                        if (t_current < t) {
-                            t = t_current;
-                            currentNormal = intersection.normal;
-                            minSphere = &sphere;
-                            minObject = ObjectType::SPHERE;
-                            currentMaterial = sphere.material_id;
-                        }
-                    }
-                }
-
-                for (const auto &triangle : scene.triangles) {
-                    std::optional<intersectData> intersected = intersect(
-                        rayToPixel, triangle.indices, scene.vertex_data);
-                    if (intersected) {
-                        intersectData intersection = intersected.value();
-                        float t_current = intersection.t;
-                        if (t_current < t) {
-                            t = t_current;
-                            currentNormal = intersection.normal;
-                            minFace = &triangle.indices;
-                            minObject = ObjectType::TRIANGLE;
-                            currentMaterial = triangle.material_id;
-                        }
-                    }
-                }
-
-                for (const auto &mesh : scene.meshes) {
-                    for (const auto &face : mesh.faces) {
-                        std::optional<intersectData> intersected =
-                            intersect(rayToPixel, face, scene.vertex_data);
-                        if (intersected) {
-                            intersectData intersection = intersected.value();
-                            float t_current = intersection.t;
-                            if (t_current < t) {
-                                t = t_current;
-                                currentNormal = intersection.normal;
-                                minFace = &face;
-                                minObject = ObjectType::TRIANGLE;
-                                currentMaterial = mesh.material_id;
-                            }
-                        }
-                    }
-                }
-
-                PPMColor color;
-                if (t != infinity) { // ray hit an object
-                    parser::Material material =
-                        scene.materials[currentMaterial - 1];
-
-                    tinymath::vec3f intersectionPoint =
-                        rayToPixel.origin +
-                        tinymath::normalize(rayToPixel.direction) * t;
-
-                    tinymath::vec3f toEye = rayToPixel.origin - intersectionPoint;
-
-                    tinymath::vec3f phong;
-                    tinymath::vec3f ambient;
-                    tinymath::vec3f totalDiffuse;
-                    tinymath::vec3f totalSpecular;
-
-                    ambient.x = scene.ambient_light.x * material.ambient.x;
-                    ambient.y= scene.ambient_light.y * material.ambient.y;
-                    ambient.z = scene.ambient_light.z * material.ambient.z;
-
-                    phong = ambient;
-
-
-                    for (const auto & light : scene.point_lights) {
-
-                        tinymath::vec3f lightDirection =
-                            light.position - intersectionPoint;
-
-                        Ray shadowRay;
-                        shadowRay.direction = lightDirection;
-                        tinymath::vec3f offset =  1e-3 * tinymath::normalize(shadowRay.direction);
-                        shadowRay.origin = intersectionPoint + offset;
-                        shadowRay.direction -= offset;
-
-                        float lightIntersection = infinity;
-
-                        for (const auto &sphere : scene.spheres) {
-                            std::optional<intersectData> intersected =
-                                intersect(shadowRay, sphere, scene.vertex_data);
-                            if (intersected) {
-                                intersectData intersection = intersected.value();
-                                float t_current = intersection.t;
-                                if (t_current < lightIntersection) {
-                                    lightIntersection = t_current;
-                                }
-                            }
-                        }
-
-                        for (const auto &triangle : scene.triangles) {
-                            std::optional<intersectData> intersected = intersect(
-                                    shadowRay, triangle.indices, scene.vertex_data);
-                            if (intersected) {
-                                intersectData intersection = intersected.value();
-                                float t_current = intersection.t;
-                                if (t_current < lightIntersection) {
-                                    lightIntersection = t_current;
-                                }
-                            }
-                        }
-                        for (const auto &mesh : scene.meshes) {
-                            for (const auto &face : mesh.faces) {
-                                std::optional<intersectData> intersected =
-                                    intersect(shadowRay, face, scene.vertex_data);
-                                if (intersected) {
-                                    intersectData intersection = intersected.value();
-                                    float t_current = intersection.t;
-                                    if (t_current < lightIntersection) {
-                                        lightIntersection = t_current;
-                                    }
-                                }
-                            }
-                        }
-
-                        if (lightIntersection >= t) {
-
-                            float cosTheta = std::max(
-                                    0.0f, tinymath::dot(tinymath::normalize(lightDirection),
-                                        currentNormal));
-                            float lightDistance = tinymath::length(lightDirection);
-                            tinymath::vec3f lightIntensity =
-                                light.intensity;
-
-                            float cosThetaOverDistanceSquared =
-                                cosTheta / (lightDistance * lightDistance);
-
-                            tinymath::vec3f diffuse;
-                            diffuse.x = (lightIntensity.x * material.diffuse.x) *
-                                cosThetaOverDistanceSquared;
-                            diffuse.y = (lightIntensity.y * material.diffuse.y) *
-                                cosThetaOverDistanceSquared;
-                            diffuse.z = (lightIntensity.z * material.diffuse.z) *
-                                cosThetaOverDistanceSquared;
-
-                            totalDiffuse += diffuse;
-
-                            tinymath::vec3f specular;
-                            tinymath::vec3f halfVector = tinymath::normalize(
-                                    tinymath::normalize(lightDirection) +
-                                    tinymath::normalize(toEye));
-                            float cosAlpha = std::max(0.0f, tinymath::dot(currentNormal, halfVector));
-                            float cosAlphaWithPhongAndR = std::pow(cosAlpha, material.phong_exponent) / (lightDistance * lightDistance);
-
-                            specular.x = (lightIntensity.x * material.specular.x) * cosAlphaWithPhongAndR;  
-                            specular.y = (lightIntensity.y * material.specular.y) * cosAlphaWithPhongAndR;  
-                            specular.z = (lightIntensity.z * material.specular.z) * cosAlphaWithPhongAndR;  
-
-                            totalSpecular += specular;
-                        }
-
-                    }
-
-
-                    phong += totalSpecular;
-                    phong += totalDiffuse;
-                    phong = clamp(phong);
-
-
-
-                    color = {static_cast<int>(phong.x),
-                             static_cast<int>(phong.y),
-                             static_cast<int>(phong.z)};
-#if 0
-                    if (minObject == ObjectType::SPHERE) {
-                        color = {255, 255, 255};
-                    }
-                    if (minObject == ObjectType::TRIANGLE) {
-                        color = {255, 255, 255};
-                    }
-#endif
-                } else {
-                    color = {0, 0, 0};
-                }
-
-                image.setPixel(i, j, color);
-            }
-        }
-
-        std::cout << "writing..." << std::endl;
-        image.writeFile(camera.image_name);
-    }
+    for (const auto &camera : scene.cameras)
+        createImage(camera, scene);
+        
 }
