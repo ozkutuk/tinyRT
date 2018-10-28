@@ -23,6 +23,7 @@ struct imageConfig {
 struct Ray {
     tinymath::vec3f origin;
     tinymath::vec3f direction;
+    float t;
 };
 
 struct intersectData {
@@ -148,9 +149,8 @@ intersect(const Ray &ray, const parser::Sphere &sphere,
           const std::vector<tinymath::vec3f> &vertex_data) {
     tinymath::vec3f sphereCenter = vertex_data[sphere.center_vertex_id - 1];
 
-    tinymath::vec3f direction = tinymath::normalize(ray.direction);
-    float fst = tinymath::dot(direction, ray.origin - sphereCenter);
-    float snd = tinymath::dot(direction, direction);
+    float fst = tinymath::dot(ray.direction, ray.origin - sphereCenter);
+    float snd = tinymath::dot(ray.direction, ray.direction);
     float thrd =
         tinymath::dot(ray.origin - sphereCenter, ray.origin - sphereCenter) -
         sphere.radius * sphere.radius;
@@ -163,7 +163,7 @@ intersect(const Ray &ray, const parser::Sphere &sphere,
     //    return std::nullopt;
     //}
 
-    float t = (-tinymath::dot(direction, (ray.origin - sphereCenter)) -
+    float t = (-tinymath::dot(ray.direction, (ray.origin - sphereCenter)) -
                std::sqrt(determinant)) /
               snd;
 
@@ -173,7 +173,7 @@ intersect(const Ray &ray, const parser::Sphere &sphere,
     intersectData result;
     result.t = t;
     result.normal =
-        tinymath::normalize((ray.origin + t * direction) - sphereCenter);
+        tinymath::normalize((ray.origin + t * ray.direction) - sphereCenter);
     return result;
 }
 
@@ -187,8 +187,7 @@ intersect(const Ray &ray, const parser::Face &triangle,
     tinymath::vec3f edgeBC = vertexC - vertexB;
     tinymath::vec3f edgeBA = vertexA - vertexB;
 
-    tinymath::vec3f direction = tinymath::normalize(ray.direction);
-    tinymath::vec3f pvec = tinymath::cross(direction, edgeBA);
+    tinymath::vec3f pvec = tinymath::cross(ray.direction, edgeBA);
     float determinant = tinymath::dot(edgeBC, pvec);
 
     // no face-culling
@@ -204,7 +203,7 @@ intersect(const Ray &ray, const parser::Face &triangle,
         return std::nullopt;
 
     tinymath::vec3f qvec = tinymath::cross(tvec, edgeBC);
-    float v = tinymath::dot(direction, qvec) * inverseDeterminant;
+    float v = tinymath::dot(ray.direction, qvec) * inverseDeterminant;
     if (v < 0 || u + v > 1)
         return std::nullopt;
 
@@ -335,11 +334,11 @@ tinymath::vec3f calculateSpecular(const parser::Material & material,
 }
 
 Ray castShadowRay(const tinymath::vec3f & direction, const tinymath::vec3f & origin, float epsilon) {
+    // this function expects normalized direction
     Ray shadowRay;
     shadowRay.direction = direction;
-    tinymath::vec3f offset =  epsilon * tinymath::normalize(direction);
+    tinymath::vec3f offset =  epsilon * direction;
     shadowRay.origin = origin + offset;
-    shadowRay.direction -= offset;
     return shadowRay;
 }
 
@@ -347,7 +346,7 @@ tinymath::vec3f calculatePhong(const Ray & ray, const traceData & intersection, 
 
     parser::Material material = scene.materials[intersection.material - 1];
     tinymath::vec3f intersectionPoint = ray.origin +
-        tinymath::normalize(ray.direction) * intersection.t;
+        ray.direction * intersection.t;
     tinymath::vec3f toEye = ray.origin - intersectionPoint;
 
     tinymath::vec3f phong;
@@ -364,7 +363,7 @@ tinymath::vec3f calculatePhong(const Ray & ray, const traceData & intersection, 
             light.position - intersectionPoint;
 
         Ray shadowRay =
-            castShadowRay(lightDirection, intersectionPoint, scene.shadow_ray_epsilon);
+            castShadowRay(tinymath::normalize(lightDirection), intersectionPoint, scene.shadow_ray_epsilon);
         auto shadowIntersect = trace(shadowRay, scene);
 
         // calculate diffuse and specular only if point is not in the shadow
@@ -420,6 +419,8 @@ void putPixel(int x, int y, PPMImage & image, const imageConfig & config,
     rayToPixel.direction =
         (config.topLeft + uOffset * right - vOffset * camera.up) -
         rayToPixel.origin;
+    rayToPixel.t = tinymath::length(rayToPixel.direction);
+    rayToPixel.direction = tinymath::normalize(rayToPixel.direction);
 
     auto intersection = trace(rayToPixel, scene);
     auto color = calculateColor(rayToPixel, intersection, scene);
@@ -460,7 +461,7 @@ void createImage(const parser::Camera & camera, const parser::Scene & scene) {
 int main(int argc, char *argv[]) {
     parser::Scene scene;
 
-    scene.loadFromXml("../hw1_sample_scenes/bunny.xml");
+    scene.loadFromXml("../hw1_sample_scenes/cornellbox.xml");
 
     for (auto & mesh : scene.meshes)
         mesh.boundingBox = calculateBoundingBox(mesh, scene.vertex_data);
