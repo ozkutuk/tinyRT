@@ -26,6 +26,7 @@ struct Ray {
     tinymath::vec3f origin;
     tinymath::vec3f direction;
     float t;
+    int recursionRemaining;
 };
 
 struct intersectData {
@@ -384,6 +385,33 @@ tinymath::vec3f calculatePhong(const Ray & ray, const traceData & intersection, 
 
     phong += totalSpecular;
     phong += totalDiffuse;
+
+    if ((material.mirror.x > 0
+        || material.mirror.y > 0
+        || material.mirror.z > 0) && ray.recursionRemaining > 0) {
+
+        Ray reflected;
+        reflected.direction = -1 * (-1 * ray.direction + 
+                            2 *  tinymath::dot(intersection.normal, ray.direction) 
+                              * intersection.normal);
+        reflected.origin = intersectionPoint + scene.shadow_ray_epsilon * reflected.direction;
+
+        reflected.t = 1.0f;
+        reflected.recursionRemaining = ray.recursionRemaining - 1;
+
+        auto reflectedIntersection = trace(reflected, scene);
+        tinymath::vec3f mirrorComponent;
+        if (reflectedIntersection.t != infinity) {
+            mirrorComponent = calculatePhong(reflected, reflectedIntersection, scene);
+
+            mirrorComponent.x *= material.mirror.x;
+            mirrorComponent.y *= material.mirror.y;
+            mirrorComponent.z *= material.mirror.z;
+
+            phong += mirrorComponent;
+        }
+    }
+
     phong = clamp(phong);
 
     return phong;
@@ -422,6 +450,7 @@ void putPixel(int x, int y, PPMImage & image, const imageConfig & config,
         rayToPixel.origin;
     rayToPixel.t = tinymath::length(rayToPixel.direction);
     rayToPixel.direction = tinymath::normalize(rayToPixel.direction);
+    rayToPixel.recursionRemaining = scene.max_recursion_depth;
 
     auto intersection = trace(rayToPixel, scene);
     auto color = calculateColor(rayToPixel, intersection, scene);
