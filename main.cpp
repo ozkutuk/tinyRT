@@ -101,7 +101,7 @@ intersect(const Ray &ray, const parser::Face &triangle,
 int main(int argc, char *argv[]) {
     parser::Scene scene;
 
-    scene.loadFromXml("../hw1_sample_scenes/simple_shading.xml");
+    scene.loadFromXml("../hw1_sample_scenes/bunny.xml");
 
     for (const auto &camera : scene.cameras) {
 
@@ -230,11 +230,17 @@ int main(int argc, char *argv[]) {
                         totalDiffuse += diffuse;
                     }
 
-                    totalDiffuse = clamp(totalDiffuse);
 
-                    color = {static_cast<int>(totalDiffuse.x),
-                             static_cast<int>(totalDiffuse.y),
-                             static_cast<int>(totalDiffuse.z)};
+                    tinymath::vec3f ambient;
+                    ambient.x = scene.ambient_light.x * material.ambient.x;
+                    ambient.y= scene.ambient_light.y * material.ambient.y;
+                    ambient.z = scene.ambient_light.z * material.ambient.z;
+
+                    tinymath::vec3f phong = clamp(totalDiffuse + ambient);
+
+                    color = {static_cast<int>(phong.x),
+                             static_cast<int>(phong.y),
+                             static_cast<int>(phong.z)};
 #if 0
                     if (minObject == ObjectType::SPHERE) {
                         color = {255, 255, 255};
