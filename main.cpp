@@ -101,7 +101,7 @@ intersect(const Ray &ray, const parser::Face &triangle,
 int main(int argc, char *argv[]) {
     parser::Scene scene;
 
-    scene.loadFromXml("../hw1_sample_scenes/bunny.xml");
+    scene.loadFromXml("../hw1_sample_scenes/mirror_spheres.xml");
 
     for (const auto &camera : scene.cameras) {
 
@@ -203,7 +203,11 @@ int main(int argc, char *argv[]) {
                         rayToPixel.origin +
                         tinymath::normalize(rayToPixel.direction) * t;
 
+                    tinymath::vec3f toEye = rayToPixel.origin - intersectionPoint;
+
                     tinymath::vec3f totalDiffuse;
+                    tinymath::vec3f totalSpecular;
+
                     for (const auto & light : scene.point_lights) {
 
                         tinymath::vec3f lightDirection =
@@ -228,6 +232,17 @@ int main(int argc, char *argv[]) {
                             cosThetaOverDistanceSquared;
 
                         totalDiffuse += diffuse;
+
+                        tinymath::vec3f specular;
+                        tinymath::vec3f halfVector = tinymath::normalize(lightDirection + toEye);
+                        float cosAlpha = std::max(0.0f, tinymath::dot(currentNormal, halfVector));
+                        float cosAlphaWithPhongAndR = std::pow(cosAlpha, material.phong_exponent) / (lightDistance * lightDistance);
+
+                        specular.x = (lightIntensity.x * material.specular.x) * cosAlphaWithPhongAndR;  
+                        specular.y = (lightIntensity.y * material.specular.y) * cosAlphaWithPhongAndR;  
+                        specular.z = (lightIntensity.z * material.specular.z) * cosAlphaWithPhongAndR;  
+
+                        totalSpecular += specular;
                     }
 
 
@@ -236,7 +251,11 @@ int main(int argc, char *argv[]) {
                     ambient.y= scene.ambient_light.y * material.ambient.y;
                     ambient.z = scene.ambient_light.z * material.ambient.z;
 
-                    tinymath::vec3f phong = clamp(totalDiffuse + ambient);
+
+
+                    tinymath::vec3f phong = clamp(totalDiffuse + ambient + totalSpecular);
+
+
 
                     color = {static_cast<int>(phong.x),
                              static_cast<int>(phong.y),
