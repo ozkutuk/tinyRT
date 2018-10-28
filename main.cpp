@@ -1,6 +1,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <algorithm>
 #include <optional>
 
 #include "parser.h"
@@ -12,7 +13,19 @@ struct Ray {
     tinymath::vec3f direction;
 };
 
-std::optional<float>
+struct intersectData {
+    float t;
+    tinymath::vec3f normal;
+};
+
+tinymath::vec3f clamp(tinymath::vec3f v) {
+    v.x = std::min(std::max(0.0f, v.x), 255.0f);
+    v.y = std::min(std::max(0.0f, v.y), 255.0f);
+    v.z = std::min(std::max(0.0f, v.z), 255.0f);
+    return v;
+}
+
+std::optional<intersectData>
 intersect(const Ray &ray, const parser::Sphere &sphere,
           const std::vector<tinymath::vec3f> &vertex_data) {
     tinymath::vec3f sphereCenter = vertex_data[sphere.center_vertex_id - 1];
@@ -32,10 +45,15 @@ intersect(const Ray &ray, const parser::Sphere &sphere,
     float t = (-tinymath::dot(direction, (ray.origin - sphereCenter)) -
                std::sqrt(determinant)) /
               snd;
-    return t;
+
+    intersectData result;
+    result.t = t;
+    result.normal =
+        tinymath::normalize((ray.origin + t * direction) - sphereCenter);
+    return result;
 }
 
-std::optional<float>
+std::optional<intersectData>
 intersect(const Ray &ray, const parser::Face &triangle,
           const std::vector<tinymath::vec3f> &vertex_data) {
     tinymath::vec3f vertexA = vertex_data[triangle.v0_id - 1];
@@ -73,13 +91,17 @@ intersect(const Ray &ray, const parser::Face &triangle,
     if (t < 0)
         return std::nullopt;
 
-    return t;
+    // TODO there must be a precomputed normal somewhere here...
+    intersectData result;
+    result.t = t;
+    result.normal = tinymath::normalize(tinymath::cross(edgeBC, edgeBA));
+    return result;
 }
 
 int main(int argc, char *argv[]) {
     parser::Scene scene;
 
-    scene.loadFromXml("../hw1_sample_scenes/mirror_spheres.xml");
+    scene.loadFromXml("../hw1_sample_scenes/simple_shading.xml");
 
     for (const auto &camera : scene.cameras) {
 
@@ -120,14 +142,17 @@ int main(int argc, char *argv[]) {
                 const parser::Face *minFace;
                 const parser::Sphere *minSphere;
                 int currentMaterial = 0;
+                tinymath::vec3f currentNormal;
 
                 for (const auto &sphere : scene.spheres) {
-                    std::optional<float> intersected =
+                    std::optional<intersectData> intersected =
                         intersect(rayToPixel, sphere, scene.vertex_data);
                     if (intersected) {
-                        float t_current = intersected.value();
+                        intersectData intersection = intersected.value();
+                        float t_current = intersection.t;
                         if (t_current < t) {
                             t = t_current;
+                            currentNormal = intersection.normal;
                             minSphere = &sphere;
                             minObject = ObjectType::SPHERE;
                             currentMaterial = sphere.material_id;
@@ -136,12 +161,14 @@ int main(int argc, char *argv[]) {
                 }
 
                 for (const auto &triangle : scene.triangles) {
-                    std::optional<float> intersected = intersect(
+                    std::optional<intersectData> intersected = intersect(
                         rayToPixel, triangle.indices, scene.vertex_data);
                     if (intersected) {
-                        float t_current = intersected.value();
+                        intersectData intersection = intersected.value();
+                        float t_current = intersection.t;
                         if (t_current < t) {
                             t = t_current;
+                            currentNormal = intersection.normal;
                             minFace = &triangle.indices;
                             minObject = ObjectType::TRIANGLE;
                             currentMaterial = triangle.material_id;
@@ -151,12 +178,14 @@ int main(int argc, char *argv[]) {
 
                 for (const auto &mesh : scene.meshes) {
                     for (const auto &face : mesh.faces) {
-                        std::optional<float> intersected =
+                        std::optional<intersectData> intersected =
                             intersect(rayToPixel, face, scene.vertex_data);
                         if (intersected) {
-                            float t_current = intersected.value();
+                            intersectData intersection = intersected.value();
+                            float t_current = intersection.t;
                             if (t_current < t) {
                                 t = t_current;
+                                currentNormal = intersection.normal;
                                 minFace = &face;
                                 minObject = ObjectType::TRIANGLE;
                                 currentMaterial = mesh.material_id;
@@ -167,10 +196,45 @@ int main(int argc, char *argv[]) {
 
                 PPMColor color;
                 if (t != infinity) { // ray hit an object
-                    parser::Material material = scene.materials[currentMaterial - 1];
-                    color = {static_cast<int>(material.diffuse.x * 255),
-                             static_cast<int>(material.diffuse.y * 255),
-                             static_cast<int>(material.diffuse.z * 255)};
+                    parser::Material material =
+                        scene.materials[currentMaterial - 1];
+
+                    tinymath::vec3f intersectionPoint =
+                        rayToPixel.origin +
+                        tinymath::normalize(rayToPixel.direction) * t;
+
+                    tinymath::vec3f totalDiffuse;
+                    for (const auto & light : scene.point_lights) {
+
+                        tinymath::vec3f lightDirection =
+                            light.position - intersectionPoint;
+
+                        float cosTheta = std::max(
+                                0.0f, tinymath::dot(tinymath::normalize(lightDirection),
+                                    currentNormal));
+                        float lightDistance = tinymath::length(lightDirection);
+                        tinymath::vec3f lightIntensity =
+                            light.intensity;
+
+                        float cosThetaOverDistanceSquared =
+                            cosTheta / (lightDistance * lightDistance);
+
+                        tinymath::vec3f diffuse;
+                        diffuse.x = (lightIntensity.x * material.diffuse.x) *
+                            cosThetaOverDistanceSquared;
+                        diffuse.y = (lightIntensity.y * material.diffuse.y) *
+                            cosThetaOverDistanceSquared;
+                        diffuse.z = (lightIntensity.z * material.diffuse.z) *
+                            cosThetaOverDistanceSquared;
+
+                        totalDiffuse += diffuse;
+                    }
+
+                    totalDiffuse = clamp(totalDiffuse);
+
+                    color = {static_cast<int>(totalDiffuse.x),
+                             static_cast<int>(totalDiffuse.y),
+                             static_cast<int>(totalDiffuse.z)};
 #if 0
                     if (minObject == ObjectType::SPHERE) {
                         color = {255, 255, 255};
