@@ -8,23 +8,13 @@ vec3f::vec3f(float x, float y, float z)
     : x(x), y(y), z(z) { }
 
 vec3f & vec3f::operator+=(const vec3f & rhs) {
-    x += rhs.x;
-    y += rhs.y;
-    z += rhs.z;
+
+    raw4 = _mm_add_ps(this->raw4, rhs.raw4);
+    //x += rhs.x;
+    //y += rhs.y;
+    //z += rhs.z;
 
     return *this;
-}
-
-bool operator==(const vec3f & lhs, const vec3f & rhs) {
-    const float epsilon = 1e-6;
-    return std::abs(lhs.x - rhs.x) < epsilon
-        && std::abs(lhs.y - rhs.y) < epsilon
-        && std::abs(lhs.z - rhs.z) < epsilon;
-
-}
-
-bool operator!=(const vec3f & lhs, const vec3f & rhs) {
-    return !(lhs == rhs);
 }
 
 vec3f operator+(vec3f lhs, const vec3f & rhs) {
@@ -33,9 +23,10 @@ vec3f operator+(vec3f lhs, const vec3f & rhs) {
 }
 
 vec3f & vec3f::operator-=(const vec3f & rhs) {
-    x -= rhs.x;
-    y -= rhs.y;
-    z -= rhs.z;
+    raw4 = _mm_sub_ps(this->raw4, rhs.raw4);
+    //x -= rhs.x;
+    //y -= rhs.y;
+    //z -= rhs.z;
 
     return *this;
 }
@@ -94,9 +85,15 @@ vec3f normalize(vec3f vec) {
 }
 
 float dot(const vec3f & lhs, const vec3f & rhs) {
-    return lhs.x * rhs.x
-         + lhs.y * rhs.y
-         + lhs.z * rhs.z;
+    union {
+        __m128 result4;
+        float result[4];
+    };
+    result4 = _mm_mul_ps(lhs.raw4, rhs.raw4);
+    return result[0] + result[1] + result[2];
+    //return lhs.x * rhs.x
+    //     + lhs.y * rhs.y
+    //     + lhs.z * rhs.z;
 }
 
 vec3f cross(const vec3f & lhs, const vec3f & rhs) {

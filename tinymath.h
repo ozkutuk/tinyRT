@@ -1,14 +1,23 @@
 #ifndef TINYMATH_H
 #define TINYMATH_H
 
+#include <xmmintrin.h>
+
 namespace tinymath {
 
 class vec3f {
 
 public:
-    float x;
-    float y;
-    float z;
+    union {
+        struct {
+            float x;
+            float y;
+            float z;
+            float dummy;
+        };
+        __m128 raw4;
+        float raw[4];
+    };
 
     explicit vec3f(float x = 0, float y = 0, float z = 0);    
     vec3f(const vec3f &) = default;
@@ -16,7 +25,6 @@ public:
 
     // equality
     friend bool operator==(const vec3f & lhs, const vec3f & rhs);
-    friend bool operator!=(const vec3f & lhs, const vec3f & rhs);
 
     // addition
     vec3f & operator+=(const vec3f & rhs);
