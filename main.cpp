@@ -501,7 +501,7 @@ void workerThread(TaskManager *manager) {
     }
 }
 
-void createImage(const parser::Camera & camera, const parser::Scene & scene) {
+void createImage(parser::Camera & camera, const parser::Scene & scene) {
 
     int width = camera.image_width;
     int height = camera.image_height;
@@ -517,7 +517,14 @@ void createImage(const parser::Camera & camera, const parser::Scene & scene) {
     config.widthPerPixel = (config.right - config.left) / width;
     config.heightPerPixel = (config.top - config.bottom) / height;
 
-    tinymath::vec3f right = tinymath::cross(camera.up, -1 * camera.gaze);
+
+    // up vector fix
+    tinymath::vec3f w = (-1 * camera.gaze) / tinymath::length(camera.gaze);
+    tinymath::vec3f u = tinymath::cross(camera.up, w);
+    u = tinymath::normalize(u);
+    camera.up = tinymath::cross(w, u);
+    tinymath::vec3f right = u;
+    // tinymath::vec3f right = tinymath::cross(camera.up, -1 * camera.gaze);
 
     config.topLeft = camera.position + camera.gaze * camera.near_distance 
                      + camera.up * config.top + right * config.left;
@@ -584,7 +591,7 @@ int main(int argc, char *argv[]) {
     std::cout << "pre-computing normals of faces..." << std::endl;
     calculateAllNormals(scene);
 
-    for (const auto &camera : scene.cameras) {
+    for (auto &camera : scene.cameras) {
         std::cout << "raytracing..." << std::endl;
         createImage(camera, scene);
     }
