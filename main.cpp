@@ -575,7 +575,7 @@ void calculateAllNormals(parser::Scene & scene) {
 int main(int argc, char *argv[]) {
     parser::Scene scene;
 
-    scene.loadFromXml("../hw1_sample_scenes/mirror_spheres.xml");
+    scene.loadFromXml(argv[1]);
 
     std::cout << "calculating bounding boxes of the meshes..." << std::endl;
     for (auto & mesh : scene.meshes)
